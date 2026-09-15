@@ -5,7 +5,7 @@ A small patch for [llama.cpp](https://github.com/ggml-org/llama.cpp) that change
 budget runs out, it makes the end tag more likely as the budget is consumed, so the model
 winds down and closes its reasoning on its own.
 
-Status: proposed upstream (issue link TBD once filed). The same code lives in
+Status: proposed upstream in [ggml-org/llama.cpp#28932](https://github.com/ggml-org/llama.cpp/issues/28932). The same code lives in
 [`NightPoetry/llama.cpp@reasoning-budget-soft-ramp`](https://github.com/NightPoetry/llama.cpp/tree/reasoning-budget-soft-ramp)
 (on top of master, 8172e65 era) — that branch is the PR source; this repo is the
 patch + docs + data home. License: MIT, same as llama.cpp.
