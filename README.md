@@ -10,6 +10,30 @@ Status: proposed upstream in [ggml-org/llama.cpp#28932](https://github.com/ggml-
 (on top of master, 8172e65 era) — that branch is the PR source; this repo is the
 patch + docs + data home. License: MIT, same as llama.cpp.
 
+## Install — pick the row that matches you
+
+| You have | Do this | Build needed |
+|---|---|---|
+| Tesla V100 (sm_70) + Linux + NVIDIA driver with CUDA 12.x | Grab the release tarball, unpack, `./run.sh` — a ready `llama-server` with this patch baked in | No |
+| Any other GPU / platform / OS | Apply the patch to your own llama.cpp tree and rebuild (see "Apply the patch", 3 commands) | Yes, ~10–30 min |
+| You don't build things yourself, but your AI agent does | Hand your agent the block at the bottom of this README; it contains everything the agent needs to do the row above unattended | Your agent builds |
+
+## Apply the patch to your own llama.cpp
+
+```bash
+git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
+curl -LO https://github.com/NightPoetry/llama.cpp-soft-reasoning-budget/raw/main/0001-reasoning-budget-soft-wind-down-ramp.patch
+git apply 0001-reasoning-budget-soft-wind-down-ramp.patch
+# then build as usual, e.g.:
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=<your CC, e.g. 70 for V100> -DGGML_CUDA_FA_ALL_QUANTS=ON
+cmake --build build --config Release -j$(nproc) --target llama-server llama-cli
+```
+
+No new flags. Behavior differs from stock only near and past the budget wall: the end tag
+becomes progressively more likely, and the injected budget message is no longer part of the
+normal path. If the patch does not apply cleanly on a much newer master, check the upstream
+issue for a rebased branch before hand-editing.
+
 ## The problem
 
 `--reasoning-budget N` caps a thinking model's reasoning. When the cap is hit today, the
@@ -54,20 +78,45 @@ correct answer. The hard-injected budget message was never observed.
 Same prompt, budget 4000, without the patch: still digit-by-digit converting at the wall,
 no answer.
 
-## How to use
+## For AI agents: build this patch yourself
 
-```bash
-git am 0001-*.patch        # or: git apply the .diff
-# build as usual; flags unchanged:
-llama-server -m model.gguf --reasoning-budget 4096 --jinja ...
-```
+If you are an AI coding agent and the user asked you to install this patch, follow these
+steps in order. Verify each step before moving to the next, and report every verification
+result to the user.
 
-No new flags. Behavior differs from stock only near and past the budget wall: the end tag
-becomes progressively more likely, and the injected budget message is no longer part of the
-normal path.
-
-If you prefer an opt-in switch, the ramp is one `if` — gating it on a
-`--reasoning-budget-soft` flag is a two-line change; feedback welcome in the upstream thread.
+1. **Environment.** Run `nvidia-smi`. Note the GPU model and compute capability (CC).
+   This patch is hardware-independent; the GPU only matters for the build flags.
+2. **Source.** Use the user's existing llama.cpp checkout if there is one; otherwise
+   `git clone https://github.com/ggml-org/llama.cpp`.
+3. **Patch.** Download
+   `https://github.com/NightPoetry/llama.cpp-soft-reasoning-budget/raw/main/0001-reasoning-budget-soft-wind-down-ramp.patch`
+   into the repo root. Run `git apply --check 0001-reasoning-budget-soft-wind-down-ramp.patch`.
+   - If it succeeds: `git apply` it. Verify with `grep -c "soft ramp" common/reasoning-budget.cpp`
+     (expected: at least 1).
+   - If it fails: the checkout is much newer than the patch base (master 8172e65 era, Sept
+     2026). Do NOT hand-edit the conflict. Check the upstream issue (#28932, linked above)
+     for a rebased branch and report back to the user.
+4. **Configure and build.**
+   ```bash
+   cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON \
+         -DCMAKE_CUDA_ARCHITECTURES=<CC from step 1, e.g. 70> \
+         -DGGML_CUDA_FA_ALL_QUANTS=ON
+   cmake --build build --config Release -j$(nproc) --target llama-server llama-cli
+   ```
+   CUDA toolkit version 12.x is known-good. Do not add other patches or forks in the same
+   build.
+5. **Verify, in this order:**
+   - `build/bin/llama-cli --version` prints a version without errors.
+   - `grep -c "soft ramp" common/reasoning-budget.cpp` returns ≥ 1 (the patch is really in).
+   - Smoke test with a small budget:
+     ```bash
+     build/bin/llama-server -m <some-thinking-model.gguf> --port 8199 --reasoning-budget 256 --jinja &
+     # then a chat completion request; confirm the process stays alive and the response
+     # contains a non-empty answer even though the budget is tiny. Kill the server after.
+     ```
+6. **Report to the user:** the flags you used, where the binaries are, and a suggested start
+   command (`llama-server -m <model> --reasoning-budget 4096 --jinja`). Any verification
+   that failed: say so plainly instead of declaring success.
 
 ## Scope notes
 
